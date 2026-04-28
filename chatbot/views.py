@@ -124,8 +124,36 @@ class ConversaViewSet(viewsets.ModelViewSet):
 
 from rest_framework.views import APIView
 
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class PerguntarAPIView(APIView):
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['texto'],
+            properties={
+                'texto': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Texto da pergunta ao chatbot'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description='Resposta do chatbot',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'conversa_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'pergunta': openapi.Schema(type=openapi.TYPE_STRING),
+                        'resposta': openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            )
+        }
+    )
 
     def post(self, request):
 

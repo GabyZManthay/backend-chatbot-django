@@ -27,3 +27,11 @@ router.register('conversas', ConversaViewSet)
 
 urlpatterns = router.urls
 
+urlpatterns = [
+    # ✅ Rotas do router (CRUDs automáticos)
+    path('', include(router.urls)),
+    
+    # ✅ Endpoint do chatbot (NLP)
+    path('perguntar/', PerguntarAPIView.as_view(), name='perguntar'),
+]
+
