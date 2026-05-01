@@ -1,6 +1,7 @@
 import os
 import spacy
-
+from chatbot.services.vetorizacao import buscar_chunks_rag
+from chatbot.services.gemini_service import chamar_api_chat
 
 from nlp.nlp import analisar_texto
 from nlp.identificacao import identificar_intencao
@@ -107,6 +108,107 @@ class PerguntaViewSet(viewsets.ModelViewSet):
     queryset = Pergunta.objects.all().order_by('-id_pergunta')
     serializer_class = PerguntaSerializer
 
+    from chatbot.services.vetorizacao import buscar_chunks_rag  # ← Adicione no topo do arquivo
+
+    # Sobrescreve o método de criação
+    def create(self, request, *args, **kwargs):
+        # Verifica se a requisição veio com o campo 'texto' (Chatbot)
+        if "texto" in request.data:
+            return self._criar_via_chatbot(request)
+        
+        # Se não tiver 'texto', cria normalmente (via Swagger normal)
+        return super().create(request, *args, **kwargs)
+
+    # def create(self, request, *args, **kwargs):
+    #     # ✅ Exige estritamente o campo 'texto'
+    #     if "texto" not in request.data or not request.data.get("texto"):
+    #         return Response(
+    #             {"erro": "Campo 'texto' é obrigatório."},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+
+    #     # ✅ Rota direta para o chatbot. Remove o fallback para criação manual.
+    #     return self._criar_via_chatbot(request)
+
+    def _criar_via_chatbot(self, request):
+        """Lógica do Chatbot com RAG PDF + fallback NLP"""
+        
+        texto = request.data.get("texto")
+        if not texto:
+            return Response({"erro": "Campo 'texto' é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+
+        usuario, _ = Usuario.objects.get_or_create(
+            email="anonimo@chatbot.local",
+            defaults={"nome": "Usuário Anônimo"}
+        )
+    
+        #  1. Tenta buscar no PDF vetorizado (RAG)
+        context_chunks = buscar_chunks_rag(texto, top_k=3, score_minimo=0.40)
+        
+        if context_chunks:
+            contexto_rag = "\n\n".join(context_chunks)
+
+            prompt = f"""
+        Você é um assistente que responde perguntas usando APENAS o contexto abaixo.
+
+        Contexto:
+        {contexto_rag}
+
+        Pergunta:
+        {texto}
+
+        Regras:
+        - Responda de forma objetiva
+        - Se houver número, informe claramente
+        - Se não encontrar, diga que não encontrou
+        """
+
+            try:
+                resposta_texto = chamar_api_chat(prompt)
+
+            except Exception:
+                resposta_texto = contexto_rag[:1500] 
+            intencao_saida = "RAG_GPT"
+            
+        else:
+            #  Fallback: usa NLP tradicional com edital.txt
+            print(f" Sem chunks relevantes. Usando NLP tradicional para: '{texto}'")
+            
+            if not base_manager.carregado:
+                base_manager.carregar(CAMINHO_BASE)
+            
+            resultado_nlp = analisar_texto(texto)
+            intencao = identificar_intencao(texto)
+            busca = base_manager.buscar(resultado_nlp["doc"])
+            resposta_texto = formatar_resposta(busca)
+            
+            # Fallback final se não encontrar nada
+            if not resposta_texto or len(resposta_texto.strip()) < 30:
+                resposta_texto = " Não encontrei informações sobre isso nos documentos disponíveis. Tente reformular a pergunta."
+            
+            intencao_saida = intencao.get("intencao", "GERAL")
+
+        # Cria os registros no banco
+        pergunta = Pergunta.objects.create(descricao_pergunta=texto)
+        resposta = Resposta.objects.create(
+            intencao=intencao_saida,
+            texto_resposta=resposta_texto,
+            tempo_resposta=None
+        )
+        conversa = Conversa.objects.create(
+            usuario=usuario,
+            pergunta=pergunta,
+            resposta=resposta,
+            avaliacao=None
+        )
+
+        return Response({
+            "id_pergunta": pergunta.id_pergunta,
+            "conversa_id": conversa.id_conversa,
+            "pergunta": pergunta.descricao_pergunta,
+            "resposta": resposta.texto_resposta
+        }, status=status.HTTP_201_CREATED)
+
 
 # -------------------------
 # CONVERSAS
@@ -116,106 +218,3 @@ class ConversaViewSet(viewsets.ModelViewSet):
 
     queryset = Conversa.objects.all().order_by('-id_conversa')
     serializer_class = ConversaSerializer
-
-
-# -------------------------
-# ENDPOINT PRINCIPAL DO CHAT
-# -------------------------
-
-from rest_framework.views import APIView
-
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-
-class PerguntarAPIView(APIView):
-
-    @swagger_auto_schema(
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['texto'],
-            properties={
-                'texto': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description='Texto da pergunta ao chatbot'
-                )
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description='Resposta do chatbot',
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'conversa_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                        'pergunta': openapi.Schema(type=openapi.TYPE_STRING),
-                        'resposta': openapi.Schema(type=openapi.TYPE_STRING),
-                    }
-                )
-            )
-        }
-    )
-
-    def post(self, request):
-
-        serializer = PerguntarSerializer(
-            data=request.data
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not base_manager.carregado:
-            base_manager.carregar(CAMINHO_BASE)
-
-
-        texto = serializer.validated_data["texto"]
-
-
-        # Usuário anônimo
-        usuario, _ = Usuario.objects.get_or_create(
-            email="anonimo@chatbot.local",
-            defaults={"nome": "Usuário Anônimo"}
-        )
-       
-        # 1. NLP primeiro (para ter a intenção e resposta)
-        resultado_nlp = analisar_texto(texto)
-        intencao = identificar_intencao(texto)
-        busca = base_manager.buscar(resultado_nlp["doc"])
-        resposta_texto = formatar_resposta(busca)
-
-
-        # 2. Cria PERGUNTA (sem conversa, porque Pergunta não tem FK para Conversa)
-        pergunta = Pergunta.objects.create(
-            descricao_pergunta=texto  
-        )
-
-
-        # 3. Cria RESPOSTA (sem pergunta, porque Resposta não tem FK para Pergunta)
-        resposta = Resposta.objects.create(
-            intencao=intencao.get("intencao", "GERAL"),  
-            texto_resposta=resposta_texto,                
-            tempo_resposta=None                          
-        )
-
-
-        # 4. Cria CONVERSA vinculando TUDO (porque Conversa tem as FKs)
-        conversa = Conversa.objects.create(
-            usuario=usuario,          
-            pergunta=pergunta,        
-            resposta=resposta,        
-            avaliacao=None            
-        )
-
-
-        # 5. Retorna a resposta da API
-        return Response({
-            "conversa_id": conversa.id_conversa,
-            "pergunta": pergunta.descricao_pergunta,  
-            "resposta": resposta.texto_resposta        
-        })
-
-        
-

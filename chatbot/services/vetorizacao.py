@@ -27,19 +27,19 @@ def extrair_texto_pdf(caminho_pdf):
 
 
 # Dividir texto em chunks
-def dividir_chunks(texto, tamanho=400):
-
-    lista_chunks = []
-
-    for i in range(0, len(texto), tamanho):
-
-        parte = texto[i:i+tamanho]
-
-        lista_chunks.append(parte)
-
-    print("Total de chunks:", len(lista_chunks))
-
-    return lista_chunks
+def dividir_chunks(texto, tamanho=300, sobreposicao=100):
+    """Divide texto preservando parágrafos e evitando cortes em palavras"""
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=tamanho,
+        chunk_overlap=sobreposicao,  # mantém contexto entre chunks
+        separators=["\n\n", "\n", ". ", " ", ""]  # prioriza quebras naturais
+    )
+    
+    chunks = splitter.split_text(texto)
+    print(f"✅ Texto dividido em {len(chunks)} chunks inteligentes")
+    return chunks
 
 
 
@@ -66,3 +66,38 @@ def processar_documento(documento):
         )
 
     print("Documento vetorizado com sucesso!")
+
+
+import numpy as np
+from chatbot.models import Chunk
+
+def buscar_chunks_rag(pergunta, top_k=3, score_minimo=0.40):
+    """Busca chunks relevantes com filtro de similaridade mínima"""
+    from chatbot.models import Chunk
+    import numpy as np
+    
+    if not Chunk.objects.exists():
+        return []
+
+    # 1. Embedding da pergunta
+    vetor_pergunta = modelo.encode(pergunta)
+
+    # 2. Recupera chunks do banco
+    chunks_qs = list(Chunk.objects.values('id_chunk', 'conteudo', 'vetor'))
+    if not chunks_qs:
+        return []
+    
+    chunk_vectors = np.array([c['vetor'] for c in chunks_qs])
+
+    # 3. Similaridade cosseno
+    norm_chunks = chunk_vectors / np.linalg.norm(chunk_vectors, axis=1, keepdims=True)
+    norm_pergunta = vetor_pergunta / np.linalg.norm(vetor_pergunta)
+    scores = np.dot(norm_chunks, norm_pergunta)
+
+    # 4. Filtra por score mínimo E pega top_k
+    relevantes = [(i, scores[i]) for i in range(len(scores)) if scores[i] >= score_minimo]
+    relevantes.sort(key=lambda x: x[1], reverse=True)
+    
+    print(f"🔍 Encontrados {len(relevantes)} chunks relevantes (score ≥ {score_minimo})")
+    
+    return [chunks_qs[i]['conteudo'] for i, _ in relevantes[:top_k]]
