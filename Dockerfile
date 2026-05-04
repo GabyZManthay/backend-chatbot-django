@@ -11,7 +11,8 @@ WORKDIR /app
 # Instalar dependências do sistema
 RUN apt-get update && apt-get install -y \
     gcc \
-    libpq-dev
+    libpq-dev \
+    netcat-openbsd
 
 # Copiar requirements
 COPY requirements.txt .
@@ -26,8 +27,14 @@ RUN python -m spacy download pt_core_news_md
 # Copiar código do projeto
 COPY . .
 
+# Copiar entrypoint
+COPY entrypoint.sh /entrypoint.sh
+
+# Dar permissão de execução
+RUN chmod +x /entrypoint.sh
+
 # Porta do Django
 EXPOSE 8000
 
-# Comando padrão
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Entry point (onde roda migrate + server)
+ENTRYPOINT ["/entrypoint.sh"]

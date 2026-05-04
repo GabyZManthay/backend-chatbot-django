@@ -2,6 +2,7 @@ import os
 import spacy
 from chatbot.services.vetorizacao import buscar_chunks_rag
 from chatbot.services.gemini_service import chamar_api_chat
+from chatbot.services.vetorizacao import processar_documento
 
 from nlp.nlp import analisar_texto
 from nlp.identificacao import identificar_intencao
@@ -46,7 +47,6 @@ from .serializers import (
     ConversaSerializer,
     RespostaSerializer
 )
-from chatbot.services.vetorizacao import processar_documento
 
 
 
@@ -107,8 +107,6 @@ class PerguntaViewSet(viewsets.ModelViewSet):
 
     queryset = Pergunta.objects.all().order_by('-id_pergunta')
     serializer_class = PerguntaSerializer
-
-    from chatbot.services.vetorizacao import buscar_chunks_rag  # ← Adicione no topo do arquivo
 
     # Sobrescreve o método de criação
     def create(self, request, *args, **kwargs):

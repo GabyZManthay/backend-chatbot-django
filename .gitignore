@@ -16,3 +16,9 @@ db.sqlite3
 
 # Logs
 *.log
+
+# pgAdmin local data
+pgadmin_data/
+
+# pgAdmin servers config (local)
+servers.json

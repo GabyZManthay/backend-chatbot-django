@@ -1,12 +1,17 @@
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-
 from chatbot.models import Chunk
-
+import numpy as np
+    
 # modelo de embedding
-modelo = SentenceTransformer('all-MiniLM-L6-v2')
+modelo = None
+
+def get_modelo():
+    global modelo
+    if modelo is None:
+        modelo = SentenceTransformer('all-MiniLM-L6-v2')
+    return modelo
 
 
 # Extrair texto do PDF
@@ -29,7 +34,6 @@ def extrair_texto_pdf(caminho_pdf):
 # Dividir texto em chunks
 def dividir_chunks(texto, tamanho=300, sobreposicao=100):
     """Divide texto preservando parágrafos e evitando cortes em palavras"""
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
     
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=tamanho,
@@ -54,7 +58,7 @@ def processar_documento(documento):
 
     lista_chunks = dividir_chunks(texto)
 
-    vetores = modelo.encode(lista_chunks)
+    vetores = get_modelo().encode(lista_chunks)
 
     for i, chunk_texto in enumerate(lista_chunks):
 
@@ -67,20 +71,14 @@ def processar_documento(documento):
 
     print("Documento vetorizado com sucesso!")
 
-
-import numpy as np
-from chatbot.models import Chunk
-
 def buscar_chunks_rag(pergunta, top_k=3, score_minimo=0.40):
     """Busca chunks relevantes com filtro de similaridade mínima"""
-    from chatbot.models import Chunk
-    import numpy as np
-    
+
     if not Chunk.objects.exists():
         return []
 
     # 1. Embedding da pergunta
-    vetor_pergunta = modelo.encode(pergunta)
+    vetor_pergunta = get_modelo().encode(pergunta)
 
     # 2. Recupera chunks do banco
     chunks_qs = list(Chunk.objects.values('id_chunk', 'conteudo', 'vetor'))

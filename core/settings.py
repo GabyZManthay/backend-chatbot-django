@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-@9mhf-yj8g-&+d#si+(n(ta=(ya#-78%=j34_s5)p_q=_+5321
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
 # Application definition
@@ -47,9 +47,11 @@ INSTALLED_APPS = [
     'drf_yasg',
 
     'chatbot',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
