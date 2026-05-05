@@ -141,7 +141,8 @@ class PerguntaViewSet(viewsets.ModelViewSet):
         )
     
         #  1. Tenta buscar no PDF vetorizado (RAG)
-        context_chunks = buscar_chunks_rag(texto, top_k=3, score_minimo=0.40)
+        # Pega todos os chunks relevantes em vez de limitar a apenas 3.
+        context_chunks = buscar_chunks_rag(texto, top_k=None, score_minimo=0.40)
         
         if context_chunks:
             contexto_rag = "\n\n".join(context_chunks)

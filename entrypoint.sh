@@ -1,12 +1,7 @@
 #!/bin/sh
 
 echo "Aguardando banco..."
-
-while ! nc -z db 5432; do
-  sleep 1
-done
-
-echo "Banco disponível!"
+sleep 10
 
 echo "Aplicando migrations..."
 python manage.py migrate

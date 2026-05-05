@@ -39,9 +39,11 @@ class PerguntarSerializer(serializers.Serializer):
 
 
 class PerguntaSerializer(serializers.ModelSerializer):
+    texto = serializers.CharField(source='descricao_pergunta')
     class Meta:
         model = Pergunta
         fields = '__all__'
+        fields = ['texto']  
 
 
 class RespostaSerializer(serializers.ModelSerializer):
