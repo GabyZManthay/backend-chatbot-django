@@ -43,7 +43,16 @@ class Usuario(models.Model):
 
 class Pergunta(models.Model):
     id_pergunta = models.AutoField(primary_key=True)
+
     descricao_pergunta = models.TextField()
+
+    conversa = models.ForeignKey(
+        'Conversa',
+        on_delete=models.CASCADE,
+        related_name='perguntas',
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return self.descricao_pergunta[:50]
@@ -79,6 +88,14 @@ class Categoria(models.Model):
 # DOCUMENTO
 # -------------------------
 
+from django.db import models
+from django.utils import timezone
+
+
+from django.db import models
+from django.utils import timezone
+
+
 class Documento(models.Model):
     id_documento = models.AutoField(primary_key=True)
 
@@ -90,7 +107,6 @@ class Documento(models.Model):
 
     arquivo = models.FileField(
         upload_to="documentos/",
-        
         null=True,
         blank=True
     )
@@ -99,8 +115,18 @@ class Documento(models.Model):
         auto_now_add=True
     )
 
+    # começa null
+    data_modificacao = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
     def __str__(self):
-        return self.nome if self.nome else f"Documento {self.id_documento}"
+        return (
+            self.nome
+            if self.nome
+            else f"Documento {self.id_documento}"
+        )
 
 
 # -------------------------
@@ -142,20 +168,6 @@ class Conversa(models.Model):
     gerenciador = models.ForeignKey(
         GerenciadorDialogo,
         on_delete=models.CASCADE,
-        null=True,
-        blank=True
-    )
-
-    pergunta = models.ForeignKey(
-        Pergunta,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
-
-    resposta = models.ForeignKey(
-        Resposta,
-        on_delete=models.SET_NULL,
         null=True,
         blank=True
     )

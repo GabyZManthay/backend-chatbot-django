@@ -7,9 +7,15 @@ from django.contrib.auth.hashers import make_password
 from .models import Pergunta, Resposta, Conversa
 
 class DocumentoSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Documento
         fields = '__all__'
+
+        read_only_fields = (
+            'data_insercao',
+            'data_modificacao'
+        )
                 
 
 class UsuarioSerializer(serializers.ModelSerializer):
@@ -37,13 +43,34 @@ class PerguntarSerializer(serializers.Serializer):
         help_text="Digite a pergunta do usuário"
     )
 
+    chat_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID do chat/conversa existente (opcional)"
+    )
+    
+
 
 class PerguntaSerializer(serializers.ModelSerializer):
-    texto = serializers.CharField(source='descricao_pergunta')
+
+    texto = serializers.CharField(
+        source='descricao_pergunta'
+    )
+
+    chat_id = serializers.SerializerMethodField()
+
     class Meta:
         model = Pergunta
-        fields = '__all__'
-        fields = ['texto']  
+        fields = [
+            'id_pergunta',
+            'texto',
+            'chat_id'
+        ]
+
+    def get_chat_id(self, obj):
+        if obj.conversa:
+            return obj.conversa.id_conversa
+        return None
 
 
 class RespostaSerializer(serializers.ModelSerializer):
@@ -53,11 +80,6 @@ class RespostaSerializer(serializers.ModelSerializer):
 
 
 class ConversaSerializer(serializers.ModelSerializer):
-
-    perguntas = PerguntaSerializer(
-        many=True,
-        read_only=True
-    )
 
     class Meta:
         model = Conversa

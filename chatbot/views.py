@@ -50,17 +50,41 @@ from .serializers import (
 
 
 
+from django.utils import timezone
+
+
+from django.utils import timezone
+
+
+from django.utils import timezone
+
+
 class DocumentoViewSet(viewsets.ModelViewSet):
     queryset = Documento.objects.all()
     serializer_class = DocumentoSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (
+        MultiPartParser,
+        FormParser
+    )
+
     def perform_create(self, serializer):
 
         documento = serializer.save()
 
-        # 🚀 roda vetorização automática
+        # POST -> data_modificacao fica null
         processar_documento(documento)
 
+    def perform_update(self, serializer):
+
+        # PATCH/PUT -> seta automaticamente
+        documento = serializer.save(
+            data_modificacao=timezone.now()
+        )
+
+        # reprocessa se trocar arquivo
+        if "arquivo" in self.request.FILES:
+            processar_documento(documento)
+            
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
@@ -103,46 +127,99 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 # PERGUNTAS
 # -------------------------
 
+
 class PerguntaViewSet(viewsets.ModelViewSet):
 
-    queryset = Pergunta.objects.all().order_by('-id_pergunta')
+    queryset = Pergunta.objects.all().order_by(
+        '-id_pergunta'
+    )
+
     serializer_class = PerguntaSerializer
 
-    # Sobrescreve o método de criação
-    def create(self, request, *args, **kwargs):
-        # Verifica se a requisição veio com o campo 'texto' (Chatbot)
+    # ------------------------------------------------
+    # CREATE
+    # ------------------------------------------------
+    def create(
+        self,
+        request,
+        *args,
+        **kwargs
+    ):
+
         if "texto" in request.data:
-            return self._criar_via_chatbot(request)
-        
-        # Se não tiver 'texto', cria normalmente (via Swagger normal)
-        return super().create(request, *args, **kwargs)
+            return self._criar_via_chatbot(
+                request
+            )
 
-    # def create(self, request, *args, **kwargs):
-    #     # ✅ Exige estritamente o campo 'texto'
-    #     if "texto" not in request.data or not request.data.get("texto"):
-    #         return Response(
-    #             {"erro": "Campo 'texto' é obrigatório."},
-    #             status=status.HTTP_400_BAD_REQUEST
-    #         )
+        return super().create(
+            request,
+            *args,
+            **kwargs
+        )
 
-    #     # ✅ Rota direta para o chatbot. Remove o fallback para criação manual.
-    #     return self._criar_via_chatbot(request)
+    # ------------------------------------------------
+    # CHATBOT
+    # ------------------------------------------------
+    def _criar_via_chatbot(
+        self,
+        request
+    ):
 
-    def _criar_via_chatbot(self, request):
-        """Lógica do Chatbot com RAG PDF + fallback NLP"""
+        texto = request.data.get(
+            "texto"
+        )
 
-        texto = request.data.get("texto")
+        chat_id = request.data.get(
+            "chat_id"
+        )
 
         if not texto:
             return Response(
-                {"erro": "Campo 'texto' é obrigatório."},
+                {
+                    "erro":
+                    "Campo 'texto' é obrigatório."
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # ----------------------------------------
+        # usuário anônimo
+        # ----------------------------------------
         usuario, _ = Usuario.objects.get_or_create(
             email="anonimo@chatbot.local",
-            defaults={"nome": "Usuário Anônimo"}
+            defaults={
+                "nome":
+                "Usuário Anônimo"
+            }
         )
+
+        # ----------------------------------------
+        # CHAT OPCIONAL
+        # ----------------------------------------
+        if chat_id:
+
+            try:
+
+                conversa = Conversa.objects.get(
+                    id_conversa=chat_id
+                )
+
+            except Conversa.DoesNotExist:
+
+                return Response(
+                    {
+                        "erro":
+                        "Chat não encontrado"
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        else:
+
+            conversa = Conversa.objects.create(
+                usuario=usuario,
+                avaliacao=None
+            )
 
         # =====================================================
         # 1. BUSCA RAG
@@ -154,54 +231,93 @@ class PerguntaViewSet(viewsets.ModelViewSet):
             score_minimo=0.30
         )
 
+        fontes = []
+
         # =====================================================
-        # 2. SE ENCONTROU CHUNKS -> USA LLM
+        # 2. RAG + LLM
         # =====================================================
 
         if context_chunks:
 
-            contexto_rag = "\n\n".join(context_chunks)
-            
-            print(f"📚 Chunks encontrados para RAG: {contexto_rag}")
+            # monta contexto
+            contexto_rag = "\n\n".join([
+                chunk["conteudo"]
+                for chunk in context_chunks
+            ])
+
+            # captura PDFs usados
+            fontes = list(set([
+                chunk["documento"]
+                for chunk in context_chunks
+            ]))
+
+            print(
+                "📚 Fontes encontradas:"
+            )
+
+            print(fontes)
 
             prompt = f"""
-            Você é um assistente que responde perguntas usando APENAS o contexto abaixo.
+            Você é um assistente especialista
+            em responder perguntas sobre editais.
 
-            Regras:
-            - Responda de forma objetiva
+            REGRAS IMPORTANTES:
+
+            - Responda SOMENTE usando o contexto fornecido
             - Nunca invente informações
-            - Nunca misture informações de chunks diferentes
-            - Se houver datas, copie exatamente
-            - Se não encontrar a resposta, diga:
-            "Não encontrei essa informação no documento."
+            - Nunca misture informações de documentos diferentes
+            - Se houver respostas diferentes em PDFs diferentes,
+            mostre TODAS separadamente
+            - Associe corretamente cada resposta ao edital
+            - Copie datas exatamente como aparecem
+            - Seja objetivo
+            - Se não encontrar a informação diga:
+            "Não encontrei essa informação nos documentos."
 
-            Contexto:
+            CONTEXTO:
             {contexto_rag}
 
-            Pergunta:
+            PERGUNTA:
             {texto}
             """
 
-            print("🚀 Enviando prompt para LLM...")
+            print(
+                "🚀 Enviando prompt para LLM..."
+            )
 
             try:
 
-                resposta_texto = chamar_api_chat(prompt)
+                resposta_texto = chamar_api_chat(
+                    prompt
+                )
 
-                print("✅ Resposta da LLM:")
-                print(resposta_texto)
+                print(
+                    "✅ Resposta da LLM:"
+                )
 
-                intencao_saida = "RAG_GPT"
+                print(
+                    resposta_texto
+                )
+
+                intencao_saida = (
+                    "RAG_GPT"
+                )
 
             except Exception as e:
 
-                print("❌ Erro ao chamar LLM:")
+                print(
+                    "❌ Erro ao chamar LLM:"
+                )
+
                 print(str(e))
 
-                # fallback simples
-                resposta_texto = contexto_rag[:1500]
+                resposta_texto = (
+                    "Erro ao gerar resposta."
+                )
 
-                intencao_saida = "RAG_GPT"
+                intencao_saida = (
+                    "RAG_GPT"
+                )
 
         # =====================================================
         # 3. FALLBACK NLP
@@ -209,36 +325,62 @@ class PerguntaViewSet(viewsets.ModelViewSet):
 
         else:
 
-            print(f"📚 Sem chunks relevantes. Usando NLP tradicional para: '{texto}'")
+            print(
+                f"📚 Sem chunks relevantes. "
+                f"Usando NLP tradicional para: "
+                f"'{texto}'"
+            )
 
             if not base_manager.carregado:
-                base_manager.carregar(CAMINHO_BASE)
 
-            resultado_nlp = analisar_texto(texto)
-
-            intencao = identificar_intencao(texto)
-
-            busca = base_manager.buscar(resultado_nlp["doc"])
-
-            resposta_texto = formatar_resposta(busca)
-
-            # fallback final
-            if not resposta_texto or len(resposta_texto.strip()) < 30:
-
-                resposta_texto = (
-                    "Não encontrei informações sobre isso nos documentos disponíveis. "
-                    "Tente reformular a pergunta."
+                base_manager.carregar(
+                    CAMINHO_BASE
                 )
 
-            intencao_saida = intencao.get("intencao", "GERAL")
+            resultado_nlp = analisar_texto(
+                texto
+            )
+
+            intencao = identificar_intencao(
+                texto
+            )
+
+            busca = base_manager.buscar(
+                resultado_nlp["doc"]
+            )
+
+            resposta_texto = (
+                formatar_resposta(
+                    busca
+                )
+            )
+
+            if (
+                not resposta_texto
+                or
+                len(
+                    resposta_texto.strip()
+                ) < 30
+            ):
+
+                resposta_texto = (
+                    "Não encontrei "
+                    "informações sobre isso "
+                    "nos documentos disponíveis. "
+                    "Tente reformular "
+                    "a pergunta."
+                )
+
+            intencao_saida = (
+                intencao.get(
+                    "intencao",
+                    "GERAL"
+                )
+            )
 
         # =====================================================
         # 4. SALVA NO BANCO
         # =====================================================
-
-        pergunta = Pergunta.objects.create(
-            descricao_pergunta=texto
-        )
 
         resposta = Resposta.objects.create(
             intencao=intencao_saida,
@@ -246,24 +388,31 @@ class PerguntaViewSet(viewsets.ModelViewSet):
             tempo_resposta=None
         )
 
-        conversa = Conversa.objects.create(
-            usuario=usuario,
-            pergunta=pergunta,
-            resposta=resposta,
-            avaliacao=None
+        pergunta = Pergunta.objects.create(
+            descricao_pergunta=texto,
+            conversa=conversa
         )
 
         # =====================================================
         # 5. RETORNO API
         # =====================================================
 
-        return Response({
-            "id_pergunta": pergunta.id_pergunta,
-            "conversa_id": conversa.id_conversa,
-            "pergunta": pergunta.descricao_pergunta,
-            "resposta": resposta.texto_resposta
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "id_pergunta":
+                    pergunta.id_pergunta,
 
+                "chat_id":
+                    conversa.id_conversa,
+
+                "pergunta":
+                    pergunta.descricao_pergunta,
+
+                "resposta":
+                    resposta.texto_resposta
+            },
+            status=status.HTTP_201_CREATED
+        )
 
 # -------------------------
 # CONVERSAS
