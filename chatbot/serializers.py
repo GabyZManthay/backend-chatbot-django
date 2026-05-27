@@ -51,6 +51,17 @@ class PerguntarSerializer(serializers.Serializer):
     
 
 
+class RespostaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Resposta
+        fields = [
+            'id_resposta',
+            'intencao',
+            'texto_resposta',
+            'tempo_resposta'
+        ]
+
+
 class PerguntaSerializer(serializers.ModelSerializer):
 
     texto = serializers.CharField(
@@ -58,13 +69,15 @@ class PerguntaSerializer(serializers.ModelSerializer):
     )
 
     chat_id = serializers.SerializerMethodField()
+    resposta = RespostaSerializer(read_only=True)
 
     class Meta:
         model = Pergunta
         fields = [
             'id_pergunta',
             'texto',
-            'chat_id'
+            'chat_id',
+            'resposta'
         ]
 
     def get_chat_id(self, obj):
@@ -73,16 +86,29 @@ class PerguntaSerializer(serializers.ModelSerializer):
         return None
 
 
-class RespostaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Resposta
-        fields = '__all__'
-
-
 class ConversaSerializer(serializers.ModelSerializer):
+
+    usuario = serializers.SerializerMethodField()
+    perguntas = PerguntaSerializer(many=True, read_only=True)
 
     class Meta:
         model = Conversa
-        fields = '__all__'
+        fields = [
+            'id_conversa',
+            'usuario',
+            'data_conversa',
+            'horario_conversa',
+            'avaliacao',
+            'perguntas'
+        ]
+
+    def get_usuario(self, obj):
+        if obj.usuario:
+            return {
+                'id_usuario': obj.usuario.id_usuario,
+                'nome': obj.usuario.nome,
+                'email': obj.usuario.email
+            }
+        return None
         
         

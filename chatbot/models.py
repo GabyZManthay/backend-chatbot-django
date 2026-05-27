@@ -68,6 +68,14 @@ class Resposta(models.Model):
     texto_resposta = models.TextField()
     tempo_resposta = models.DurationField(null=True, blank=True)
 
+    pergunta = models.OneToOneField(
+        Pergunta,
+        on_delete=models.CASCADE,
+        related_name='resposta',
+        null=True,
+        blank=True
+    )
+
     def __str__(self):
         return self.intencao
 

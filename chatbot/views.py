@@ -183,15 +183,40 @@ class PerguntaViewSet(viewsets.ModelViewSet):
             )
 
         # ----------------------------------------
-        # usuário anônimo
+        # usuário anônimo ou informado
         # ----------------------------------------
-        usuario, _ = Usuario.objects.get_or_create(
-            email="anonimo@chatbot.local",
-            defaults={
-                "nome":
-                "Usuário Anônimo"
-            }
-        )
+        usuario_id = request.data.get("usuario_id")
+        usuario_email = request.data.get("usuario_email")
+
+        if usuario_id:
+            try:
+                usuario = Usuario.objects.get(
+                    pk=usuario_id
+                )
+            except Usuario.DoesNotExist:
+                return Response(
+                    {
+                        "erro":
+                        "Usuário não encontrado"
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        elif usuario_email:
+            usuario, _ = Usuario.objects.get_or_create(
+                email=usuario_email,
+                defaults={
+                    "nome":
+                    "Usuário"
+                }
+            )
+        else:
+            usuario, _ = Usuario.objects.get_or_create(
+                email="anonimo@chatbot.local",
+                defaults={
+                    "nome":
+                    "Usuário Anônimo"
+                }
+            )
 
         # ----------------------------------------
         # CHAT OPCIONAL
@@ -233,6 +258,17 @@ class PerguntaViewSet(viewsets.ModelViewSet):
 
         fontes = []
 
+        # monta histórico do próprio chat (se houver)
+        historico_chat = []
+        for pergunta_anterior in conversa.perguntas.all().order_by('id_pergunta'):
+            if hasattr(pergunta_anterior, 'resposta') and pergunta_anterior.resposta:
+                historico_chat.append(
+                    f"Pergunta anterior: {pergunta_anterior.descricao_pergunta}\n"
+                    f"Resposta anterior: {pergunta_anterior.resposta.texto_resposta}"
+                )
+
+        contexto_historico = "\n\n".join(historico_chat)
+
         # =====================================================
         # 2. RAG + LLM
         # =====================================================
@@ -257,6 +293,14 @@ class PerguntaViewSet(viewsets.ModelViewSet):
 
             print(fontes)
 
+            historico_prompt = ""
+
+            if contexto_historico:
+                historico_prompt = (
+                    "INCLUA O HISTÓRICO DA CONVERSA ANTERIOR:\n"
+                    f"{contexto_historico}\n\n"
+                )
+
             prompt = f"""
             Você é um assistente especialista
             em responder perguntas sobre editais.
@@ -273,6 +317,8 @@ class PerguntaViewSet(viewsets.ModelViewSet):
             - Seja objetivo
             - Se não encontrar a informação diga:
             "Não encontrei essa informação nos documentos."
+
+            {historico_prompt}
 
             CONTEXTO:
             {contexto_rag}
@@ -320,77 +366,137 @@ class PerguntaViewSet(viewsets.ModelViewSet):
                 )
 
         # =====================================================
-        # 3. FALLBACK NLP
+        # 3. FALLBACK NLP / HISTÓRICO
         # =====================================================
 
         else:
 
-            print(
-                f"📚 Sem chunks relevantes. "
-                f"Usando NLP tradicional para: "
-                f"'{texto}'"
-            )
+            if contexto_historico:
 
-            if not base_manager.carregado:
-
-                base_manager.carregar(
-                    CAMINHO_BASE
+                print(
+                    "📚 Sem chunks relevantes, mas há histórico da conversa. "
+                    "Usando histórico do chat para a LLM..."
                 )
 
-            resultado_nlp = analisar_texto(
-                texto
-            )
+                prompt = f"""
+                Você é um assistente especialista
+                em responder perguntas sobre editais.
 
-            intencao = identificar_intencao(
-                texto
-            )
+                REGRAS IMPORTANTES:
 
-            busca = base_manager.buscar(
-                resultado_nlp["doc"]
-            )
+                - Responda SOMENTE usando o contexto fornecido
+                - Nunca invente informações
+                - Nunca misture informações de documentos diferentes
+                - Se houver respostas diferentes em PDFs diferentes,
+                mostre TODAS separadamente
+                - Associe corretamente cada resposta ao edital
+                - Copie datas exatamente como aparecem
+                - Seja objetivo
+                - Se não encontrar a informação diga:
+                "Não encontrei essa informação nos documentos."
 
-            resposta_texto = (
-                formatar_resposta(
-                    busca
+                HISTÓRICO DA CONVERSA:
+                {contexto_historico}
+
+                PERGUNTA:
+                {texto}
+                """
+
+                try:
+
+                    resposta_texto = chamar_api_chat(
+                        prompt
+                    )
+
+                    intencao_saida = (
+                        "HISTORICO_CHAT"
+                    )
+
+                except Exception as e:
+
+                    print(
+                        "❌ Erro ao chamar LLM pelo histórico:" 
+                    )
+
+                    print(str(e))
+
+                    resposta_texto = (
+                        "Erro ao gerar resposta." 
+                    )
+
+                    intencao_saida = (
+                        "HISTORICO_CHAT"
+                    )
+
+            else:
+
+                print(
+                    f"📚 Sem chunks relevantes. "
+                    f"Usando NLP tradicional para: "
+                    f"'{texto}'"
                 )
-            )
 
-            if (
-                not resposta_texto
-                or
-                len(
-                    resposta_texto.strip()
-                ) < 30
-            ):
+                if not base_manager.carregado:
+
+                    base_manager.carregar(
+                        CAMINHO_BASE
+                    )
+
+                resultado_nlp = analisar_texto(
+                    texto
+                )
+
+                intencao = identificar_intencao(
+                    texto
+                )
+
+                busca = base_manager.buscar(
+                    resultado_nlp["doc"]
+                )
 
                 resposta_texto = (
-                    "Não encontrei "
-                    "informações sobre isso "
-                    "nos documentos disponíveis. "
-                    "Tente reformular "
-                    "a pergunta."
+                    formatar_resposta(
+                        busca
+                    )
                 )
 
-            intencao_saida = (
-                intencao.get(
-                    "intencao",
-                    "GERAL"
+                if (
+                    not resposta_texto
+                    or
+                    len(
+                        resposta_texto.strip()
+                    ) < 30
+                ):
+
+                    resposta_texto = (
+                        "Não encontrei "
+                        "informações sobre isso "
+                        "nos documentos disponíveis. "
+                        "Tente reformular "
+                        "a pergunta."
+                    )
+
+                intencao_saida = (
+                    intencao.get(
+                        "intencao",
+                        "GERAL"
+                    )
                 )
-            )
 
         # =====================================================
         # 4. SALVA NO BANCO
         # =====================================================
 
-        resposta = Resposta.objects.create(
-            intencao=intencao_saida,
-            texto_resposta=resposta_texto,
-            tempo_resposta=None
-        )
-
         pergunta = Pergunta.objects.create(
             descricao_pergunta=texto,
             conversa=conversa
+        )
+
+        resposta = Resposta.objects.create(
+            intencao=intencao_saida,
+            texto_resposta=resposta_texto,
+            tempo_resposta=None,
+            pergunta=pergunta
         )
 
         # =====================================================
@@ -422,3 +528,37 @@ class ConversaViewSet(viewsets.ModelViewSet):
 
     queryset = Conversa.objects.all().order_by('-id_conversa')
     serializer_class = ConversaSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        usuario_id = self.request.query_params.get('usuario_id')
+        usuario_email = self.request.query_params.get('usuario_email')
+        data_inicio = self.request.query_params.get('data_inicio')
+        data_fim = self.request.query_params.get('data_fim')
+
+        if usuario_id:
+            queryset = queryset.filter(usuario_id=usuario_id)
+
+        if usuario_email:
+            queryset = queryset.filter(usuario__email=usuario_email)
+
+        if data_inicio:
+            queryset = queryset.filter(data_conversa__gte=data_inicio)
+
+        if data_fim:
+            queryset = queryset.filter(data_conversa__lte=data_fim)
+
+        return queryset
+
+    @action(detail=True, methods=['get'])
+    def historico(self, request, pk=None):
+        conversa = self.get_object()
+        serializer = self.get_serializer(conversa)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def exportar(self, request):
+        conversas = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(conversas, many=True)
+        return Response(serializer.data)
