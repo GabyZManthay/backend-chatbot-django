@@ -176,5 +176,6 @@ class BaseConhecimentoManager:
             "confianca": 0
         }
 
-# Singleton
+# Singleton: instância única do gerenciador de conhecimento usada em todo o app.
+# Como é usado: fornece um ponto global de acesso para buscar informações da base carregada.
 base_manager = BaseConhecimentoManager()

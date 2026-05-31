@@ -13,6 +13,8 @@ def get_modelo():
     global modelo
 
     if modelo is None:
+        # Singleton (lazy initialization): instancia o modelo de embeddings uma vez.
+        # Como é usado: garante que todas as buscas e vetorização usem a mesma instância de SentenceTransformer.
         modelo = SentenceTransformer(
             'all-MiniLM-L6-v2'
         )

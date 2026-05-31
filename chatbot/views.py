@@ -163,6 +163,10 @@ class PerguntaViewSet(viewsets.ModelViewSet):
             **kwargs
         )
 
+    # Facade: orquestra vários serviços, buscas RAG, LLM e fallback NLP para gerar a resposta.
+    # Como é usado: centraliza a lógica de criação de perguntas e uso de componentes de processamento.
+
+
     # ------------------------------------------------
     # CHATBOT
     # ------------------------------------------------

@@ -5,6 +5,8 @@ _nlp = None
 def get_nlp():
     global _nlp
     if _nlp is None:
+        # Singleton (lazy initialization): cria apenas um único objeto spaCy e reutiliza depois.
+        # Como é usado: evita recarregar o modelo NLP várias vezes e mantém a instância compartilhada.
         try:
             _nlp = spacy.load("pt_core_news_md")
         except OSError:
