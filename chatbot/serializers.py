@@ -45,7 +45,6 @@ class PerguntarSerializer(serializers.Serializer):
 
     chat_id = serializers.IntegerField(
         required=False,
-        allow_null=True,
         help_text="ID do chat/conversa existente (opcional)"
     )
     

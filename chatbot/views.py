@@ -136,6 +136,12 @@ class PerguntaViewSet(viewsets.ModelViewSet):
 
     serializer_class = PerguntaSerializer
 
+    # ✅ Usa PerguntarSerializer no create
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return PerguntarSerializer
+        return PerguntaSerializer
+
     # ------------------------------------------------
     # CREATE
     # ------------------------------------------------
@@ -172,6 +178,19 @@ class PerguntaViewSet(viewsets.ModelViewSet):
         chat_id = request.data.get(
             "chat_id"
         )
+
+        # ✅ Garante que chat_id seja integer
+        if chat_id is not None:
+            try:
+                chat_id = int(chat_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {
+                        "erro":
+                        "Campo 'chat_id' deve ser um número inteiro."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         if not texto:
             return Response(
